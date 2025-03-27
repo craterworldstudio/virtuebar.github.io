@@ -10,6 +10,11 @@ from symbol_table_i import *
 import os
 from error_i import *
 import random
+from importer import Manager
+
+class Runtime:
+	developement_mode = True
+	cwd = os.getcwd()
 
 class Value:
 	def __init__(self):
@@ -68,6 +73,9 @@ class Value:
 		return None, self.illegal_operation(other)
 
 	def execute(self, args, no_value):
+		return RTResult().failure(self.illegal_operation())
+	
+	def load(self, libs):
 		return RTResult().failure(self.illegal_operation())
 
 	def copy(self):
@@ -249,7 +257,7 @@ class List(Value):
 		return copy
 
 	def __str__(self):
-		return ", ".join([str(x) for x in self.elements])
+		return f'[{", ".join([str(x) for x in self.elements])}]'
 	
 	def __repr__(self):
 		return f'[{", ".join([repr(x) for x in self.elements])}]'
@@ -271,10 +279,10 @@ class BaseFunction(Value):
 		if len(args) > len(arg_names):
 			return res.failure(RunTimeError(
 			self.pos_start, self.pos_end,
-        f"{len(args) - len(arg_names)} too many args passed into {self}",
-        self.context
-      	))
-    
+		f"{len(args) - len(arg_names)} too many args passed into {self}",
+		self.context
+	  	))
+	
 		if len(args) < len(arg_names):
 			return res.failure(RunTimeError(
 			self.pos_start, self.pos_end,
@@ -327,6 +335,106 @@ class Function(BaseFunction):
 	def __repr__(self):
 		return f"<function {self.name}>"
 
+class File_IO(Value):
+	
+	def __init__(self, file:None, fileName) -> None:
+		super().__init__()
+		self.file = file
+		self.OpenfileName = fileName
+		self.fileAlreadyOpened = False
+		self.openModeType = None
+		self.permissions = []
+		self.set_pos()
+		self.set_context()
+		self.setDefinedAttr()
+
+	def get_attr(self, func, args=[]):
+		return self.func(args)
+
+	def setDefinedAttr(self, permissions=None, file=None, filename=None, mode=None, fileAlreadyOpened=False):
+		self.permissions = permissions if permissions is not None else []
+		self.file = file if file is not None else None
+		self.OpenfileName = filename
+		self.openModeType = mode if mode is not None else  None
+		self.fileAlreadyOpened = fileAlreadyOpened
+		return self
+
+	def set_pos(self, pos_start=None, pos_end=None):
+		self.pos_start = pos_start
+		self.pos_end = pos_end
+		return self
+
+	def set_context(self, context=None):
+		self.context = context
+		return self
+
+	def OpenFile(self, fileio, path, mode):
+		fileio.OpenfileName = path
+		fileio.fileAlreadyOpened = True
+		fileio.openModeType = mode
+		
+		#print(fileio.permissions)
+
+		file = open(path, mode)
+		fileio.file = file
+		return file
+	
+	def modeDetermination(self,  mode):
+		mode = str(mode).lower()
+
+		if mode == 'r':
+			self.permissions.append('read')
+		if mode == 'w':
+			self.permissions.append('write')
+		if mode == 'a':
+			self.permissions.append('append')
+		if mode == 'c':
+			self.permissions.append('create')
+		if mode == 'x':
+			self.permissions.append('destroy')
+	
+	def ReadFile(self, FiIO, file):
+		#print(FiIO.permissions)
+		if 'read' in FiIO.permissions:
+			data = file.read()
+			error = None
+		else:
+			data = None
+			error = (PrivilagedAccessError(
+				self.pos_start, self.pos_end,
+				"Selected File doesn't have read privilages."
+			))
+		return data, error
+
+	def WriteFile(self, FiIO, file, text):
+		#print(FiIO.permissions)
+		if 'write' in FiIO.permissions:
+			file.write(text.value)
+			data = True
+			error = None
+		else:
+			data = False
+			error = (PrivilagedAccessError(
+				self.pos_start, self.pos_end,
+				"Selected File doesn't have write privilages."
+			))
+		return data, error
+	
+	def isExist(self, path):
+		status = os.path.isfile(path)
+		#print(status)
+
+	def copy(self):
+		copy = File_IO(self.file, self.OpenfileName)
+		copy.set_context(self.context)
+		copy.set_pos(self.pos_start, self.pos_end)
+		copy.setDefinedAttr(self.permissions, self.file)
+
+		return copy
+
+	def __repr__(self):
+		return f"<FileObject File.{self.file}>"
+
 class String(Value):
 	def __init__(self, value):
 		super().__init__()
@@ -357,10 +465,10 @@ class String(Value):
 		return copy
 
 	def __str__(self):
-		return self.value
+		return f'"{self.value}"'
 
 	def __repr__(self):
-		return f'"{self.value}"'
+		return f'{self.value}'
 
 ###################################################################################
 # GLOBAL CONSTANTS
@@ -373,8 +481,10 @@ Number.math_PI = Number(math.pi)
 ###################################################################################s
 
 class BuiltInFunction(BaseFunction):
-	def __init__(self, name):
+	def __init__(self, name=None):
 		super().__init__(name)
+		self.manager = Manager()
+		self.manager.setInterpreterLibPath()
 
 	def execute(self, args, no_value):
 		res = RTResult()
@@ -389,6 +499,17 @@ class BuiltInFunction(BaseFunction):
 		return_value = res.register(method(exec_ctx))
 		if res.should_return(): return res
 		return res.success(return_value)
+	
+	def load(self, libs):
+		res = RTResult()
+		self.libs_to_be_imported =  libs
+		print(self, libs)
+		raw_list = []
+		for lib in self.libs_to_be_imported:
+			raw_list.append(lib.value)
+
+		self.manager.register_libraries(raw_list)
+		return res.success(Number.none)
 
 	def no_visit_method(self, node, context):
 		raise Exception(f'No execute_{self.name} method defined')
@@ -404,7 +525,7 @@ class BuiltInFunction(BaseFunction):
 
 	#################################################################################################
 
-############################### I/O SYSTEM ###############################
+#region ############################### I/O SYSTEM ###############################
 	def execute_printout(self, exec_ctx):
 		print(str(exec_ctx.symbol_table.get('value')))
 		return RTResult().success(Number.none)
@@ -430,6 +551,30 @@ class BuiltInFunction(BaseFunction):
 				print(f"'{text}' must be an integer. Try again!")
 		return RTResult().success(Number(number))
 	execute_typein_int.arg_names = []
+
+	def execute_multi_typein(self, exec_ctx):
+		NumberOfInputs = exec_ctx.symbol_table.get('Number')
+
+		if not isinstance(NumberOfInputs, Number):
+			return RTResult().failure(RunTimeError(
+				self.pos_start, self.pos_end,
+				"Argument must be number",
+				exec_ctx
+			))
+		
+		NumberOfInputs = NumberOfInputs.value
+		inputs = []
+
+		for i in range(0, NumberOfInputs):
+			a = input()
+			inputs.append(a)
+		
+		return RTResult().success(List(inputs))
+	execute_multi_typein.arg_names = ['Number']
+
+#endregion
+
+#region ############################## Verification Commands #############################
 
 	def execute_clear(self, exec_ctx):
 		os.system('cls' if os.name == 'nt' else 'clear')
@@ -461,10 +606,11 @@ class BuiltInFunction(BaseFunction):
 		exec_ctx.symbol_table.remove(item)
 		del item
 		return RTResult().success(Number.none)
-	
 	execute_clean.arg_names = ['item']
 
-############################### List Operations ###############################
+#endregion
+
+#region ############################### List Operations ###############################
 
 	def execute_len(self, exec_ctx):
 		value = exec_ctx.symbol_table.get("list")
@@ -502,10 +648,10 @@ class BuiltInFunction(BaseFunction):
 
 		if not isinstance(list_, List):
 			return RTResult().failure(RunTimeError(
-        		self.pos_start, self.pos_end,
-        		"First argument must be list",
-        		exec_ctx
-      	))
+				self.pos_start, self.pos_end,
+				"First argument must be list",
+				exec_ctx
+	  	))
 
 		if not isinstance(index, Number):
 			return RTResult().failure(RunTimeError(
@@ -574,7 +720,43 @@ class BuiltInFunction(BaseFunction):
 		return RTResult().success(String(result))
 	execute_join.arg_names = ["elements", "separator"]
 
-############################### MATH FUNCTIONS ###############################
+	def execute_max(self, exec_ctx):
+		Alist = exec_ctx.symbol_table.get("Alist")
+
+		if not isinstance(Alist, List):
+			return RTResult().failure(RunTimeError(
+				self.pos_start, self.pos_end,
+				"Argument must be list",
+				exec_ctx
+	  	))
+		elements = []
+		for i in Alist.elements:
+			elements.append(int(i.get_value()))
+		result = max(elements)
+
+		return RTResult().success(Number(result))
+	execute_max.arg_names = ["Alist"]
+
+	def execute_min(self, exec_ctx):
+		Alist = exec_ctx.symbol_table.get("Alist")
+
+		if not isinstance(Alist, List):
+			return RTResult().failure(RunTimeError(
+				self.pos_start, self.pos_end,
+				"Argument must be list",
+				exec_ctx
+	  	))
+		elements = []
+		for i in Alist.elements:
+			elements.append(int(i.get_value()))
+		result = min(elements)
+
+		return RTResult().success(Number(result))
+	execute_min.arg_names = ["Alist"]
+
+#endregion
+
+#region ############################### MATH FUNCTIONS ###############################
 
 	def execute_floor(self, exec_ctx):
 		num = exec_ctx.symbol_table.get("float")
@@ -722,13 +904,168 @@ class BuiltInFunction(BaseFunction):
 	execute_ranint.arg_names = ['maxint', 'minint']
 
 	def execute_range(self, exec_ctx):
-		min_int = int(exec_ctx.symbol_table.get("min"))
-		max_int = int(exec_ctx.symbol_table.get("max"))
+		min_int = int(exec_ctx.symbol_table.get("min").value)
+		max_int = int(exec_ctx.symbol_table.get("max").value)
+		RangedNumbers = []
 		for i in range(min_int, max_int):
-			return RTResult().success(Number(i))
+			RangedNumbers.append(Number(i))
+		return RTResult().success(List(RangedNumbers))
 	execute_range.arg_names = ["min", "max"]
+#endregion
 
-############################### Language Embeded Functions ###############################
+#region ################################ String Manupulation #################################
+
+	def execute_contatinate(self, exec_ctx):
+		itema = str(exec_ctx.symbol_table.get("itema").value)
+		itemb = str(exec_ctx.symbol_table.get("itemb").value)
+		result = itema + itemb
+		return RTResult().success(String(result))
+	execute_contatinate.arg_names = ["itema", "itemb"]
+
+	def execute_substring(self, exec_ctx):
+		item = str(exec_ctx.symbol_table.get("item").value)
+		if isinstance(exec_ctx.symbol_table.get("value"), String):
+			return RTResult().failure(RunTimeError(
+				self.pos_start, self.pos_end,
+				"First Argument must be String",
+				exec_ctx
+			))
+
+		try:
+			startpos = int(exec_ctx.symbol_table.get("startpos").value)
+		except:
+			startpos = 0
+		
+		try:
+			endpos = int(exec_ctx.symbol_table.get("endpos").value)
+		except:
+			endpos = -1
+
+		try:
+			step = int(exec_ctx.symbol_table.get("step").value)
+		except:
+			step = 1
+
+		substring = item[startpos:endpos:step]
+		return RTResult().success(String(substring))
+	execute_substring.arg_names = ["item", "startpos", "endpos", "step"]
+
+	def execute_replace(self, exec_ctx):
+		item = str(exec_ctx.symbol_table.get("item").value)
+		#print(type(exec_ctx.symbol_table.get("orgWord")))
+		Orgword = str(exec_ctx.symbol_table.get("orgWord").value)
+		ReplWord = str(exec_ctx.symbol_table.get("replWord").value)
+
+		result = item.replace(Orgword, ReplWord)
+		return RTResult().success(String(result))
+	execute_replace.arg_names = ["item", "orgWord", "replWord"]
+
+	def execute_lowercase(self, exec_ctx):
+		item = str(exec_ctx.symbol_table.get("item").value)
+
+		result = item.lower()
+		return RTResult().success(String(result))
+	execute_lowercase.arg_names = ['item']
+
+	def execute_uppercase(self, exec_ctx):
+		item = str(exec_ctx.symbol_table.get("item").value)
+
+		result = item.upper()
+		return RTResult().success(String(result))
+	execute_uppercase.arg_names = ['item']
+
+	def execute_split(self, exec_ctx):
+		item = str(exec_ctx.symbol_table.get("item").value)
+		sep = str(exec_ctx.symbol_table.get("separator").value)
+
+		spliteditem = item.split(sep=sep)
+		resultList = []
+
+		for i in spliteditem:
+			resultList.append(String(i))
+		
+		return RTResult().success(List(resultList))
+	execute_split.arg_names = ["item", "separator"]
+
+	
+#endregion
+
+#region File I/O
+	def execute_open(self, exec_ctx):
+		path = str(exec_ctx.symbol_table.get("path").value)
+		mode = str(exec_ctx.symbol_table.get("mode").value)
+		fPath = path[:-4]
+		for i in range(0, 2):
+			if fPath[2] == "\\":
+				fName = fPath.split("\\")[-1]
+			elif fPath[2] == "/":
+				fName = fPath.split("/")[-1]
+			else:
+				fName = path
+		
+		fIO = File_IO(None,fName)
+
+		file = fIO.OpenFile(fIO, path, mode)
+		fIO.modeDetermination(mode)
+		exec_ctx.symbol_table.set(fIO, fIO)
+		fIO.file = file
+		#print(path, fPath, fName, mode)
+		return RTResult().success(fIO)
+	execute_open.arg_names = ["path", "mode"]
+
+ 
+	def execute_read(self, exec_ctx):
+		fileio = exec_ctx.symbol_table.get("file")
+		#print(fileio.fileAlreadyOpened)
+		if not isinstance(fileio, File_IO) and fileio.fileAlreadyOpened:
+			return RTResult().failure(RunTimeError(
+				self.pos_start, self.pos_end,
+				"First argument must be a file already opened file object",
+				exec_ctx
+			))
+		#print(fileio.fileAlreadyOpened)
+		try:
+			data, error = fileio.ReadFile(fileio, fileio.file)
+		except:
+			file = exec_ctx.symbol_table.get("file")
+			data, error = file.ReadFile(file, file.file)
+
+		if data:
+			data = data.split("\n")
+			Filedata = []
+			for i in data:
+				Filedata.append(String(i))
+			return RTResult().success(List(Filedata))
+		elif error:
+			return RTResult().failure(error)
+	execute_read.arg_names = ["file"]
+ 
+	def execute_write(self, exec_ctx):
+		fileio = exec_ctx.symbol_table.get("file")
+		text = exec_ctx.symbol_table.get("text")
+
+		#print(fileio.fileAlreadyOpened)
+		if not isinstance(fileio, File_IO) and fileio.fileAlreadyOpened:
+			return RTResult().failure(RunTimeError(
+				self.pos_start, self.pos_end,
+				"First argument must be a file already opened file object",
+				exec_ctx
+			))
+	
+		try:
+			data, error = fileio.WriteFile(fileio, fileio.file, text)
+		except:
+			file = exec_ctx.symbol_table.get("file")
+			data, error = file.WriteFile(file, file.file, text)
+   
+		if error:
+			return RTResult().failure(error)
+   
+		return RTResult().success(Number.none, True)
+	execute_write.arg_names = ["file", "text"]
+#endregion
+
+#region ############################### Language Embeded Functions ###############################
 
 	def execute_run(self, exec_ctx):
 		fn = exec_ctx.symbol_table.get("fn")
@@ -740,8 +1077,14 @@ class BuiltInFunction(BaseFunction):
 				exec_ctx
 			))
 
-		fn = fn.value
-
+		fn = str(os.path.basename(fn.value))
+		#print(fn)
+		if fn.endswith(".virh"):
+			return RTResult().failure(RunTimeError(
+			self.pos_start, self.pos_end,
+			f"Cannot run Header files with run() function! \nUse addlib!\n",
+			exec_ctx
+			)) 
 		try:
 			with open(fn, "r") as file:
 				script = file.read()
@@ -753,8 +1096,8 @@ class BuiltInFunction(BaseFunction):
 			))
 
 		from run_i import run
-		_, error = run(fn, script)
-
+		_ , error = run(fn, script, path=True)
+		
 		if error: return RTResult().failure(RunTimeError(
 			self.pos_start, self.pos_end,
 			f"Failed to finish executing script \"{fn}\"\n" + 
@@ -774,37 +1117,76 @@ class BuiltInFunction(BaseFunction):
 		return RTResult().success(AttrList)
 	execute_global_attributes.arg_names = []
 
+	def execute_stay(self, exec_ctx):
+		a = input("Press any key to continue....")
+		return RTResult().success(Number.none)
+	execute_stay.arg_names = []
+
+	def execute_test(self, exec_ctx):
+		if Runtime.developement_mode == True:
+			print(File_IO.isExist(self.fIO,"G:\\Language\\Interpreter\\symbol_table_i.py"))
+		else:
+			return RTResult().failure(DevelopmentModeAccessError(
+				self.pos_start, self.pos_end,
+				f"This function is only available in development mode.\nDevelopmentMode: Inactive"
+			))
+		return RTResult().success(Number.none)
+	execute_test.arg_names = []
+
+	def execute_get_cwd(self, exec_ctx):
+		cwd = Runtime.cwd
+		return RTResult().success(String(cwd))
+	execute_get_cwd.arg_names = []	
+
+#endregion
 
 ############################### Assignments ###############################
 
-BuiltInFunction.printout    = BuiltInFunction("printout")
-BuiltInFunction.printreturn = BuiltInFunction("printreturn")
-BuiltInFunction.typein      = BuiltInFunction("typein")
-BuiltInFunction.typein_int  = BuiltInFunction("typein_int")
-BuiltInFunction.clear       = BuiltInFunction("clear")
-BuiltInFunction.is_number   = BuiltInFunction("is_number")
-BuiltInFunction.is_string   = BuiltInFunction("is_string")
-BuiltInFunction.is_list     = BuiltInFunction("is_list")
-BuiltInFunction.is_function = BuiltInFunction("is_function")
-BuiltInFunction.append      = BuiltInFunction("append")
-BuiltInFunction.pop         = BuiltInFunction("pop")
-BuiltInFunction.extend      = BuiltInFunction("extend")
-BuiltInFunction.floor 		= BuiltInFunction("floor")
-BuiltInFunction.ceil      	= BuiltInFunction("ceil")
-BuiltInFunction.square  	= BuiltInFunction("square")
-BuiltInFunction.cube		= BuiltInFunction("cube")
-BuiltInFunction.tessaract	= BuiltInFunction("tessaract")
-BuiltInFunction.add 		= BuiltInFunction("add")
-BuiltInFunction.subt		= BuiltInFunction("subt")
-BuiltInFunction.mult		= BuiltInFunction("mult")
-BuiltInFunction.divi		= BuiltInFunction("divi")
-BuiltInFunction.sqrt		= BuiltInFunction("sqrt")
-BuiltInFunction.cbrt		= BuiltInFunction("cbrt")
-BuiltInFunction.ranint		= BuiltInFunction("ranint")
-BuiltInFunction.range       = BuiltInFunction("range")
-BuiltInFunction.run 		= BuiltInFunction("run")
-BuiltInFunction.len 		= BuiltInFunction("len")
-BuiltInFunction.map			= BuiltInFunction("map")
-BuiltInFunction.join 		= BuiltInFunction("join")
-BuiltInFunction.clean		= BuiltInFunction("clean")
+
+
+BuiltInFunction.printout    	  = BuiltInFunction("printout")
+BuiltInFunction.printreturn 	  = BuiltInFunction("printreturn")
+BuiltInFunction.typein      	  = BuiltInFunction("typein")
+BuiltInFunction.multi_typein	  = BuiltInFunction("multi_typein")
+BuiltInFunction.typein_int  	  = BuiltInFunction("typein_int")
+BuiltInFunction.clear       	  = BuiltInFunction("clear")
+BuiltInFunction.is_number   	  = BuiltInFunction("is_number")
+BuiltInFunction.is_string   	  = BuiltInFunction("is_string")
+BuiltInFunction.is_list     	  = BuiltInFunction("is_list")
+BuiltInFunction.is_function 	  = BuiltInFunction("is_function")
+BuiltInFunction.append      	  = BuiltInFunction("append")
+BuiltInFunction.pop         	  = BuiltInFunction("pop")
+BuiltInFunction.extend      	  = BuiltInFunction("extend")
+BuiltInFunction.max				  = BuiltInFunction("max")
+BuiltInFunction.min				  = BuiltInFunction("min")
+BuiltInFunction.contatinate 	  = BuiltInFunction("contatinate")
+BuiltInFunction.substring 		  = BuiltInFunction("substring")
+BuiltInFunction.replace 		  = BuiltInFunction("replace")
+BuiltInFunction.uppercase		  = BuiltInFunction("uppercase")
+BuiltInFunction.lowercase		  = BuiltInFunction("lowercase")
+BuiltInFunction.split			  = BuiltInFunction("split")
+BuiltInFunction.floor 			  = BuiltInFunction("floor")
+BuiltInFunction.ceil      		  = BuiltInFunction("ceil")
+BuiltInFunction.square  		  = BuiltInFunction("square")
+BuiltInFunction.cube			  = BuiltInFunction("cube")
+BuiltInFunction.tessaract		  = BuiltInFunction("tessaract")
+BuiltInFunction.add 			  = BuiltInFunction("add")
+BuiltInFunction.subt			  = BuiltInFunction("subt")
+BuiltInFunction.mult			  = BuiltInFunction("mult")
+BuiltInFunction.divi			  = BuiltInFunction("divi")
+BuiltInFunction.sqrt			  = BuiltInFunction("sqrt")
+BuiltInFunction.cbrt			  = BuiltInFunction("cbrt")
+BuiltInFunction.ranint			  = BuiltInFunction("ranint")
+BuiltInFunction.range       	  = BuiltInFunction("range")
+BuiltInFunction.run 			  = BuiltInFunction("run")
+BuiltInFunction.len 			  = BuiltInFunction("len")
+BuiltInFunction.map				  = BuiltInFunction("map")
+BuiltInFunction.join 			  = BuiltInFunction("join")
+BuiltInFunction.open			  = BuiltInFunction("open")
+BuiltInFunction.read 			  = BuiltInFunction("read")
+BuiltInFunction.write 			  = BuiltInFunction("write")
+BuiltInFunction.clean			  = BuiltInFunction("clean")
+BuiltInFunction.stay			  = BuiltInFunction("stay")
+BuiltInFunction.test			  = BuiltInFunction("test")
 BuiltInFunction.global_attributes = BuiltInFunction("global_attributes")
+BuiltInFunction.get_cwd			  = BuiltInFunction("get_cwd")

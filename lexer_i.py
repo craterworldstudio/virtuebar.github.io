@@ -4,15 +4,16 @@ from error_i import *
 from position_i import Position
 from parser_i import *
 from nodes_i import *
+import os
 
 ###########################################
 # LEXER
 ###########################################
 
 class Lexer:
-	def __init__(self, fn, text):
+	def __init__(self, fn, text, path=False):
 		self.text = text
-		self.fn = fn
+		self.fn = os.path.basename(fn) if path == True else "<shell>"
 		self.pos = Position(-1, 0, -1, fn, text)
 		self.current_char = None
 		self.advance()
@@ -41,12 +42,22 @@ class Lexer:
 				tokens.append(self.make_identifier())
 
 			elif self.current_char == '"':
-				tokens.append(self.make_string())
+				tokens.append(self.make_stringwith2q())
 
-			elif self.current_char == '%':
+			elif self.current_char == "'":
+				tokens.append(self.make_stringwith1q())
+
+			elif self.current_char == '$':
 				self.advance()
 
-				if self.current_char == '%':
+				if self.current_char == '>':
+					self.skip_comment(True)
+
+				if self.current_char == '{':
+					tokens.append(Token(TT_HLCRBRAC, pos_start = self.pos))
+					self.advance()
+
+				if self.current_char == '$':
 					self.skip_comment()
 
 			elif self.current_char in [';', '\n']:
@@ -95,7 +106,15 @@ class Lexer:
 				self.advance()
 
 			elif self.current_char == '}':
-				tokens.append(Token(TT_RCRBRAC, pos_start= self.pos))
+				self.advance()
+				if self.current_char == '$':
+					tokens.append(Token(TT_HRCRBRAC, pos_start= self.pos))
+				else:
+					tokens.append(Token(TT_RCRBRAC, pos_start= self.pos))
+					self.advance()
+
+			elif self.current_char == ".":
+				tokens.append(Token(TT_ATTR, value='.',pos_start = self.pos))
 				self.advance()
 
 			elif self.current_char == '!':
@@ -124,13 +143,13 @@ class Lexer:
 				pos_start = self.pos.copy()
 				char = self.current_char
 				self.advance()
-				return [],   IllegalCharError(pos_start, self.pos, "'" + char + "'")
+				return [], [],IllegalCharError(pos_start, self.pos, "'" + char + "'")
 		
 		tokens.append(Token(TT_EOF, pos_start = self.pos))
 		self.untacted_indexes.append(self.pos)
 		self.make_line_division(tokens)
 		#print(self.linecount)
-		print(tokens)
+		#print(tokens)#, self.untacted_indexes)
 		return tokens, (self.linecount, self.Prog, self.untacted_indexes), None
 
 	def make_line_division(self, tokens):
@@ -188,6 +207,7 @@ class Lexer:
 			self.advance()
 
 		tok_type = TT_KEYWORD if iden_str in KEYWORDS else TT_IDENTIFIER
+		#print(tok_type, iden_str)
 		return Token(tok_type, iden_str, pos_start, self.pos)
 
 	def make_not_equals(self):
@@ -238,7 +258,7 @@ class Lexer:
 
 		return Token(tok_type, pos_start=pos_start, pos_end=self.pos)
 
-	def make_string(self):
+	def make_stringwith2q(self):
 		string = ''
 		pos_start = self.pos.copy()
 		escape_character = False
@@ -263,11 +283,41 @@ class Lexer:
 		
 		self.advance()
 		return Token(TT_STRING, string, pos_start, self.pos)
-
-	def skip_comment(self):
+	
+	def make_stringwith1q(self):
+		string = ''
+		pos_start = self.pos.copy()
+		escape_character = False
+		e_c_starter = '//'
 		self.advance()
 
-		while self.current_char != '\n':
+		escape_characters = {
+			'n': '/n', #new line
+			't': '/t', #tab space
+			'r': '/r'  #carriage return
+		}
+		while self.current_char != None and (self.current_char != "'" or escape_character):
+			if escape_character:
+				string += escape_characters.get(self.current_char, self.current_char)
+				escape_character = False
+			else:
+				if self.current_char == e_c_starter:
+					escape_character = True
+				else:
+					string += self.current_char
 			self.advance()
+		
+		self.advance()
+		return Token(TT_STRING, string, pos_start, self.pos)
+
+	def skip_comment(self, multi=False):
+		self.advance()
+
+		if multi:
+			while self.current_char != '$':
+				self.advance()
+		else:
+			while self.current_char not in '\n;':
+				self.advance()
 
 		self.advance()

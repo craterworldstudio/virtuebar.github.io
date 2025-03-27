@@ -162,3 +162,42 @@ class BreakNode:
 		self.pos_start = pos_start
 		self.pos_end = pos_end
 		self._type = _type
+
+class GetNode:
+	def __init__(self, parent, attr, pos_start, pos_end, _type = None):
+		self.parent_type = parent
+		self.Attr = attr
+		self.pos_start = pos_start
+		self.pos_end = pos_end
+		self._type = _type
+
+class SetNode:
+	def __init__(self, parent, attr, value, pos_start, pos_end, _type = None):
+		self.parent_type = parent
+		self.Attr = attr
+		self.value = value
+		self.pos_start = pos_start
+		self.pos_end = pos_end
+		self._type = _type
+
+class CWDNode:
+	def __init__(self, directory_path, pos_start, pos_end, _type = None):
+		self.directory_path = directory_path
+		self.pos_start = pos_start
+		self.pos_end = pos_end
+		self._type = _type
+		
+class AddLibNode:
+	def __init__(self, file_name, is_abs, pos_start, pos_end, _type = None):
+		self.file_name = file_name
+		self.is_abs = is_abs
+		self.pos_start = pos_start
+		self.pos_end = pos_end
+		self._type = _type
+
+class STDLibNode:
+	def __init__(self, lib_name, pos_start, pos_end, _type = None):
+		self.lib_name = lib_name
+		self.pos_start = pos_start
+		self.pos_end = pos_end
+		self._type = _type

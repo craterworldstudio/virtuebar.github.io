@@ -4,10 +4,11 @@ from values_i import *
 
 from token_i import *
 from context_i import *
-from values_i import String, Function, List, Number
-import pprint
+from values_i import String, Number, Function, Value, List, BuiltInFunction
 from parser_i import Parser
 import values_i
+
+import os
 
 ###########################################
 # Interpreter
@@ -15,13 +16,18 @@ import values_i
 
 
 class Interpreter:
-	def __init__(self, raw_Tokens, lineData=(0, [], []), global_symbol_table=None) -> None:
+	def __init__(self, raw_Tokens=None, lineData=(0, [], []), global_symbol_table=None, bIF: BuiltInFunction = BuiltInFunction) -> None:
 		#print(lineData)
 		self.rawTokens = raw_Tokens
 		self.line, self.TotalProg, self.untacted_indexes = lineData
 		self.global_symbol_table = global_symbol_table
+		self.cwd = os.getcwd()
+		self.libs = []
+		self.bIF = bIF()
 
+		
 	def visit(self, node, context):
+		#print(2, node.element_nodes)
 		method_name = f'visit_{type(node).__name__}'
 		#print(method_name)
 		method = getattr(self, method_name, self.no_visit_method)
@@ -45,7 +51,16 @@ class Interpreter:
 		elements = []
 
 		for element_node in node.element_nodes:
-			elements.append(res.register(self.visit(element_node, context)))
+			result = res.register(self.visit(element_node, context))
+			try:
+				#print(result.value, Number.none, type(result.value), type(Number.none))
+				if result.value == None:
+					continue
+				else:
+					#print("!!!")
+					elements.append(result)
+			except AttributeError:
+				elements.append(result)
 			if res.should_return(): return res
 
 		return res.success(
@@ -80,9 +95,10 @@ class Interpreter:
 		var_name = node.var_name_tok.value
 		value = res.register(self.visit(node.value_node, context))
 		Var_type = node._type
+
 		if res.should_return(): return res
-		if Var_type in ['VAL', 'CONST']:
-			if Var_type == 'CONST':
+		if Var_type in ['val', 'const', 'ATTR']:
+			if Var_type == 'const':
 				if var_name in context.symbol_table.symbols.keys():
 					var_value = context.symbol_table.get(var_name)
 					var_type = var_value[1]
@@ -91,7 +107,13 @@ class Interpreter:
 						f"'{var_name}' is already as {var_type}!"
 					))
 				context.symbol_table.set(var_name, [value, Var_type])
-				return res.success(value)
+				return res.success(Number.none)
+			
+			if Var_type == 'ATTR':
+				return res.failure(IncorrectValueAccessError(
+					node.pos_start, node.pos_end,
+					f"'{var_name}' of Type {var_type} cannot be set with the syntax! Use 'SET'"
+				))
 			else:
 				context.symbol_table.set(var_name, [value, Var_type])
 			return res.success(Number.none)
@@ -105,7 +127,7 @@ class Interpreter:
 		INTlineno = lineno.get_value()
 
 		def get_rest_of_Prog(idx):
-			print(self.untacted_indexes)
+			#print("INDEX LISTS ", self.untacted_indexes)
 			EOF_idx = self.untacted_indexes[-1]
 			Ln = len(self.untacted_indexes) - 1
 			if idx <= 0 or idx > len(self.rawTokens):
@@ -129,7 +151,7 @@ class Interpreter:
 		
 		restOfTheProg = get_rest_of_Prog(INTlineno)
 
-		#print(restOfTheProg)
+		#print("REST OF THE PROGRAM ",restOfTheProg)
 
 		# Generate Abstract Syntax Tree
 		parser = Parser(restOfTheProg)
@@ -139,8 +161,8 @@ class Interpreter:
 		if ast.error: return None, ast.error
 
 		#Run program
-		interpreter = Interpreter((self.line, self.TotalProg))
-		context = Context('<shell>')
+		interpreter = Interpreter((self.line, self.TotalProg))                                                                                          
+		context = Context(context.display_name)
 		context.symbol_table = self.global_symbol_table
 		result = interpreter.visit(ast.node, context)
 
@@ -165,7 +187,6 @@ class Interpreter:
 
 		return res.success(Number.none)
 		
-
 	def visit_BinOpNode(self, node, context):
 		res = RTResult()
 		left = res.register(self.visit(node.left_node, context))
@@ -195,17 +216,23 @@ class Interpreter:
 			result, error = left.get_comparison_lte(right)
 		elif node.op_tok.type == TT_GTE:
 			result, error = left.get_comparison_gte(right)
+		
+		# To Get an Element from List
 		elif node.op_tok.type == TT_COLON:
 			result, error = left.get_item(right)
-		elif node.op_tok.matches(TT_KEYWORD, 'WITH'):
+
+		#elif node.op_tok.type == TT_ATTR:
+		#	result, error = left.get_attr(right)
+
+		elif node.op_tok.matches(TT_KEYWORD, 'with'):
 			result, error = left.withed_by(right)
-		elif node.op_tok.matches(TT_KEYWORD, 'OR'):
+		elif node.op_tok.matches(TT_KEYWORD, 'or'):
 			result, error = left.ored_by(right)
 
 		if error:
 			return res.failure(error)
 		else:
-			return res.success(result.set_pos(node.pos_start, node.pos_end)) 
+			return res.success(result.set_pos(node.pos_start, node.pos_end))
 
 	def visit_UnaryOpNode(self, node, context):
 		res = RTResult()
@@ -215,9 +242,9 @@ class Interpreter:
 		error = None
 
 		if node.op_tok.type == TT_MINUS:
-			number, error = number.multiplied_by(Number(-1))
+			number, error = number.multed_by(Number(-1))
 
-		elif node.op_tok.matches(TT_KEYWORD, 'INVER'): number, error = number.inverted()
+		elif node.op_tok.matches(TT_KEYWORD, 'inver'): number, error = number.inverted()
 
 		if error: return res.failure(error)
 		else: return res.success(number.set_pos(node.pos_start, node.pos_end))
@@ -322,7 +349,7 @@ class Interpreter:
 			context).set_pos(node.pos_start, node.pos_end)
 
 		if node.var_name_tok:
-			context.symbol_table.set(func_name, [func_value, 'FUNC'])
+			context.symbol_table.set(func_name, [func_value, 'func'])
 
 		return res.success(func_value)
 
@@ -347,6 +374,108 @@ class Interpreter:
 		return RTResult().success(
 			String(node.tok.value).set_context(context).set_pos(node.pos_start, node.pos_end)
 		)
+	
+	def visit_CWDNode(self, node, context):
+		res = RTResult()
+
+		self.cwd = res.register(self.visit(node.directory_path, context)) # or node.directory_path.tok.value
+		values_i.Runtime.cwd = self.cwd
+		#print(self.cwd)
+
+		return res.success(Number.none)
+			
+	def visit_AddLibNode(self, node, context):
+		res = RTResult()
+
+		filename = res.register(self.visit(node.file_name, context)) # or node.file_name.tok.value
+
+		if node.is_abs == False:
+			full_path = f"{self.cwd.value}\\{filename.value}.virh"
+		elif node.is_abs == True:
+			full_path = filename
+
+		fn = String(full_path).value
+
+		#print(fn)
+
+		try:
+			with open(fn, "r") as file:
+				script = file.read()
+		except Exception as e:
+			return res.failure(RunTimeError(
+				node.pos_start, node.pos_end,
+				f"Failed to load header \"{fn}\"\n" + str(e),
+				context
+			))
+
+		from run_i import run
+		_ , error = run(fn, script, True, True)
+		
+		if error: return RTResult().failure(RunTimeError(
+			node.pos_start, node.pos_end,
+			f"Failed to finish executing script \"{fn}\"\n" + 
+			error.as_string(),
+			context
+			))
+		
+		return res.success(Number.none)
+	
+	def visit_STDLibNode(self, node, context):
+		res = RTResult()
+		libname = res.register(self.visit(node.lib_name, context))
+
+		self.libs.append(libname)
+		print(self.bIF)
+		#return_value = res.register(BuiltInFunction.)
+		self.bIF.load(self.libs)
+
+		return res.success(Number.none)
+
+
+
+	def visit_SetNode(self, node, context):
+		res = RTResult()
+
+		parent = node.parent_type
+		attr = node.Attr.value
+		value = res.register(self.visit(node.value, context))
+
+		if res.should_return(): return res
+
+		#print(parent, attr, type(parent), type(attr))
+
+		result = ''.join(map(lambda item: str(item.value), parent)) + '.' + str(attr)
+		#print(result)
+		context.symbol_table.set(String(result).value, [value, 'ATTR'])
+
+		return res.success(value)
+
+	def visit_GetNode(self, node, context):
+		res = RTResult()
+		parent = node.parent_type
+		attr = node.Attr.value
+
+		result = String(''.join(map(lambda item: str(item.value), parent)) + '.' + str(attr))
+		#print(result, result.value)
+		value = context.symbol_table.get(result.value)
+
+		if not value:
+			return res.failure(RunTimeError(
+				node.pos_start, node.pos_end,
+				f"'{result}' is not defined",
+				context
+			))
+
+		if type(value).__name__ == 'list':
+			var_value = value[0]
+		else:
+			var_value = value
+		var_value = var_value.copy().set_pos(node.pos_start, node.pos_end).set_context(context)
+		(f'{ var_value = }')
+		returnNull = False
+		if var_value == "null":
+			returnNull = True
+		return res.success(var_value, returnNull)
 
 	def visit_ReturnNode(self, node, context):
 		res = RTResult()

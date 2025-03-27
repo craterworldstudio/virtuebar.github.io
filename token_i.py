@@ -9,26 +9,35 @@ TT_IDENTIFIER   = 'IDENTIFIER'
 TT_KEYWORD      = 'KEYWORD'
 '''
 Keywords
-- VAL - variable
-- WITH - and operator
-- OR - or operator
-- INVER - not operator
-- CONST - Constant
-- IF - If statement
-- ACT - Do if statement
-- ELIF - Else If statement
-- OTHER - Else statement
-- FOR - For Loop statement
-- WHILE - While Loop statement
-- TO - In FOR Loop statement
-- STEP - Amount of Value to skip while iterating
-- FUNC - Function Declaration Statement
-- END - End a loop, condition or function statement
-- RETURN - return value/values
-- BREAK - break out a loop
-- SKIP - Skip a iteration
-- GOTO - goto a specific line
+- val - variable
+- with - and operator
+- or - or operator
+- inver - not operator
+- const - Constant
+- if - If statement
+- act - Do if statement
+- elif - Else If statement
+- other - Else statement
+- for - For Loop statement
+- while - While Loop statement
+- to - In for Loop statement
+- step - Amount of Value to skip while iterating
+- func - Function Declaration Statement
+- end - End a loop, condition or function statement
+- return - return value/values
+- break - break out a loop
+- skip - Skip a iteration
+- goto - goto a specific line
+- SET - SET the attr of a var or func
+- GET - GET the attr of a var or func
+- addlib - Add a library or a Header file to the source file
+- Header - Define the starting of a header file code in a header file
+- CWD - Define the current working directory
+- abs - Define a absolute value for a operator. In use- Addlib
+
 '''
+
+TT_ATTR         = 'ATTR' #Attribute '.'
 
 TT_EE           = 'EE'   #Dounle Equals to
 TT_NE           = 'NE'   #Not Equals to
@@ -50,6 +59,8 @@ TT_LSQUARE      = 'LSQUARE'
 TT_RSQUARE      = 'RSQUARE'
 TT_LCRBRAC      = 'LCRBRAC'
 TT_RCRBRAC      = 'RCRBRAC'
+TT_HLCRBRAC     = 'HLCRBRAC'
+TT_HRCRBRAC     = 'HRCRBRAC'
 TT_COMMA        = 'COMMA'
 TT_NEWLINE      = 'NEWLINE'
 TT_ARROW        = 'ARROW'
@@ -57,28 +68,35 @@ TT_COLON        = 'COLON'
 
 TT_EOF          = 'EOF'                 #End of file
 
-#No. of tokens currently = 19
+#No. of tokens currently = 26
 
 KEYWORDS = [
-    'VAL',
-    'WITH',  #AND
-    'OR',
-    'INVER', #Not
-    'CONST',  #Constant
-    'IF',
-    'ACT', # Do
-    'ELIF',  #Else If
-    'OTHER',  #Else
-    'FOR',
-    'TO',
-    'STEP',
-    'WHILE',
-    'END', #End a statement
-    'FUNC', #Function
-    'RETURN', #Returns value/values
-    'SKIP',
-    'BREAK',
-    'GOTO' # go to a specific line
+    'val',
+    'with',  #AND
+    'or',
+    'inver', #Not
+    'const',  #Constant
+    'if',
+    'act', # Do
+    'elif',  #Else If
+    'other',  #Else
+    'for',
+    'to',
+    'step',
+    'while',
+    'end', #End a statement
+    'func', #Function
+    'return', #Returns value/values
+    'skip',
+    'break',
+    'goto', # go to a specific line
+    'SET', # SET the attr of a var or func
+    'GET', #GET the attr of a var or func
+    'addlib', #import a lib
+    'Header', # Declare a Header File
+    'CWD', # Define the C.W.D for the source file
+    'abs', # Define a absolute value for a operator
+    'stdlib' # import a built-in lib
 ]
 
 class Token:
